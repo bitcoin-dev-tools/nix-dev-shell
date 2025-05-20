@@ -20,7 +20,11 @@
 
       llvmPackages = pkgs.llvmPackages_20;
       toolchain = llvmPackages.stdenv.override {
-        cc = llvmPackages.clangUseLLVM;
+        cc = llvmPackages.clang.override {
+          bintools = llvmPackages.bintools.override {
+            linker = "${llvmPackages.lld}/bin/ld.lld";
+          };
+        };
       };
       pkgsWithLLVM = import nixpkgs {
         inherit system;
@@ -35,9 +39,9 @@
           byacc
           ccache
           cmake
-          gnum4
           gnumake
           libtool
+          llvmPackages_20.bintools
           llvmPackages_20.clang
           llvmPackages_20.clang-tools
           ninja
