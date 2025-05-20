@@ -12,22 +12,16 @@
     ...
   }:
     flake-utils.lib.eachDefaultSystem (system: let
-      pkgs = import nixpkgs { inherit system; };
+      pkgs = import nixpkgs {inherit system;};
+      lib = pkgs.lib;
+
       isLinux = pkgs.stdenv.isLinux;
       isDarwin = pkgs.stdenv.isDarwin;
-      lib = pkgs.lib;
-      llvmPackages = pkgs.llvmPackages_20;
 
-      # make a custom toolchain using llvm20
-      llvmStdenv = llvmPackages.stdenv.override {
+      llvmPackages = pkgs.llvmPackages_20;
+      toolchain = llvmPackages.stdenv.override {
         cc = llvmPackages.clangUseLLVM;
       };
-      toolchain =
-        if isLinux
-        then pkgs.useMoldLinker llvmStdenv
-        else llvmStdenv;
-
-      # Override pkgs to use LLVM stdenv
       pkgsWithLLVM = import nixpkgs {
         inherit system;
         stdenv = toolchain;
@@ -51,7 +45,6 @@
           qt6.wrapQtAppsHook
         ]
         ++ lib.optionals isLinux [
-          mold-wrapped
           libsystemtap
           linuxPackages.bcc
           linuxPackages.bpftrace
@@ -82,14 +75,14 @@
 
       env = {
         CMAKE_GENERATOR = "Ninja";
-        LD_LIBRARY_PATH = lib.makeLibraryPath [ pkgsWithLLVM.capnproto ];
+        LD_LIBRARY_PATH = lib.makeLibraryPath [pkgsWithLLVM.capnproto];
         LOCALE_ARCHIVE = lib.optionalString isLinux "${pkgsWithLLVM.glibcLocales}/lib/locale/locale-archive";
         QT_PLUGIN_PATH = "${pkgsWithLLVM.qt6.qtbase}/${pkgsWithLLVM.qt6.qtbase.qtPluginPrefix}";
       };
     in {
       formatter = pkgsWithLLVM.alejandra;
 
-      devShells.default = (pkgsWithLLVM.mkShell.override { stdenv = toolchain; }) {
+      devShells.default = (pkgsWithLLVM.mkShell.override {stdenv = toolchain;}) {
         nativeBuildInputs = nativeBuildInputs;
         buildInputs = buildInputs;
         packages = with pkgsWithLLVM; [
