@@ -12,49 +12,55 @@
     ...
   }:
     flake-utils.lib.eachDefaultSystem (system: let
-      pkgs = import nixpkgs { inherit system; };
+      pkgs = import nixpkgs {inherit system;};
       isLinux = pkgs.stdenv.isLinux;
       isDarwin = pkgs.stdenv.isDarwin;
       lib = pkgs.lib;
-      llvmPackages = pkgs.llvmPackages_20;
+      llvmVersion = "20";
+      llvmPackages = lib.getAttr "llvmPackages_${llvmVersion}" pkgs;
 
-      # make a custom toolchain using llvm20
-      llvmStdenv = llvmPackages.stdenv.override {
-        cc = llvmPackages.clangUseLLVM;
+      # LLVM tools
+      llvmTools = {
+        stdenv = llvmPackages.stdenv.override {cc = llvmPackages.clangUseLLVM;};
+        clang = llvmPackages.clang;
+        clang-tools = llvmPackages.clang-tools;
+        lldb = lib.getAttr "lldb_${llvmVersion}" pkgs;
       };
+
+      # Toolchain with mold for Linux
       toolchain =
         if isLinux
-        then pkgs.useMoldLinker llvmStdenv
-        else llvmStdenv;
+        then pkgs.stdenvAdapters.useMoldLinker llvmTools.stdenv
+        else llvmTools.stdenv;
 
-      # Override pkgs to use LLVM stdenv
+      # Override pkgs with custom toolchain
       pkgsWithLLVM = import nixpkgs {
         inherit system;
         stdenv = toolchain;
       };
 
+      # Helper for platform-specific packages
+      platformPkgs = cond: pkgs:
+        if cond
+        then pkgs
+        else [];
+
       # Dependencies
       nativeBuildInputs = with pkgsWithLLVM;
         [
-          autoconf
-          automake
-          byacc
+          bison
           ccache
           cmake
           curlMinimal
-          gnum4
-          gnumake
-          gnupatch
-          libtool
-          llvmPackages_20.clang
-          llvmPackages_20.clang-tools
+          llvmTools.clang
+          llvmTools.clang-tools
           ninja
           pkg-config
           python3
           xz
         ]
-        ++ lib.optionals isLinux [
-          # mold-wrapped
+        ++ platformPkgs isLinux [
+          mold-wrapped
           libsystemtap
           linuxPackages.bcc
           linuxPackages.bpftrace
@@ -64,47 +70,45 @@
         [
           boost
           capnproto
-          codespell
           db4
           libevent
           qrencode
           sqlite.dev
           zeromq
         ]
-        ++ lib.optionals isLinux [
+        ++ platformPkgs isLinux [
           libsystemtap
           linuxPackages.bcc
           linuxPackages.bpftrace
           python312Packages.bcc
-        ]
-        ++ lib.optionals isDarwin [
-          darwin.apple_sdk.frameworks.CoreServices
         ];
 
       env = {
         CMAKE_GENERATOR = "Ninja";
-        LD_LIBRARY_PATH = lib.makeLibraryPath [ pkgsWithLLVM.capnproto ];
+        LD_LIBRARY_PATH = lib.makeLibraryPath [pkgsWithLLVM.capnproto];
         LOCALE_ARCHIVE = lib.optionalString isLinux "${pkgsWithLLVM.glibcLocales}/lib/locale/locale-archive";
       };
     in {
-      formatter = pkgsWithLLVM.alejandra;
-
-      devShells.default = (pkgsWithLLVM.mkShell.override { stdenv = toolchain; }) {
+      devShells.default = (pkgsWithLLVM.mkShell.override {stdenv = toolchain;}) {
         nativeBuildInputs = nativeBuildInputs;
         buildInputs = buildInputs;
-        packages = with pkgsWithLLVM; [
-          codespell
-          gdb
-          hexdump
-          python312Packages.flake8
-          python312Packages.lief
-          python312Packages.mypy
-          python312Packages.pyzmq
-          python312Packages.vulture
-          uv
-        ];
+        packages = with pkgsWithLLVM;
+          [
+            codespell
+            hexdump
+            python312
+            python312Packages.flake8
+            python312Packages.lief
+            python312Packages.mypy
+            python312Packages.pyzmq
+            python312Packages.vulture
+          ]
+          ++ platformPkgs isLinux [gdb]
+          ++ platformPkgs isDarwin [llvmTools.lldb];
 
         inherit (env) CMAKE_GENERATOR LD_LIBRARY_PATH LOCALE_ARCHIVE;
       };
+
+      formatter = pkgsWithLLVM.alejandra;
     });
 }
