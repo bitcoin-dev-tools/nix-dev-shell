@@ -5,7 +5,6 @@ on:
     branches:
       - master
   pull_request:
-  workflow_dispatch:
 
 jobs:
   depends:
@@ -46,13 +45,23 @@ jobs:
           key: depends-base-${{ runner.os }}-${{ hashFiles('bitcoin/depends/packages/*.mk') }}
           restore-keys: depends-base-${{ runner.os }}-
 
+      - name: Set up ccache key
+        id: ccache_key
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "key=depends-ccache-pr-${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "key=depends-ccache-master" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Cache ccache
         uses: actions/cache@v4
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: ccache-x86_64-linux-${{ github.sha }}
+          key: ${{ steps.ccache_key.outputs.key }}
           restore-keys: |
-            ccache-x86_64-linux-
+            depends-ccache-master-
+            depends-ccache-
 
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@main
